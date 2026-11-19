@@ -41,7 +41,12 @@ no CLAUDE.md, so don't add one.
   releases to the Homebrew tap; peep: the LaunchAgent pattern).
 - 2026-11-19: "needs just slightly too long of a swipe": travel 12 → 9 mm (per finger
   5 → 4 mm), then "swiping feels great now". Hiding the last app on screen didn't work:
-  fixed by activating Finder first; the last app being Finder is still open (below).
+  fixed by activating Finder first. Finder itself as the last app on screen stays: the
+  user chose to leave it ("Leave Finder as is"). Options that were weighed: hand activation
+  to a windowless running app (can't be told apart: every app owns offscreen layer-0
+  windows, and one with windows on another Space would switch Spaces); a short-lived
+  invisible Autotouch helper taking focus (blank menu bar until the next click); Accessibility
+  + ⌘H (no grants, by design). Don't revisit unless the user asks.
 - Minimum macOS 27.2 (like fred); Apple Silicon only (`depends_on arch: :arm64`).
 
 ## How it works
@@ -150,12 +155,6 @@ SMAppService (peep's lesson: SMAppService pins the executable's cdhash).
   (`TrackpadThreeFingerHorizSwipeGesture = 2`), so with several desktops or full-screen
   apps a swipe also switches spaces. System
   Settings → Trackpad → More Gestures → four fingers would separate them. Their call.
-
-- Finder as the last app on screen can't be hidden from outside. Options considered: hand
-  activation to a windowless running app (can't be told apart: every app owns offscreen
-  layer-0 windows, and one with windows on another Space would switch Spaces); a
-  short-lived invisible Autotouch helper that takes focus, then Finder hides (blank menu bar
-  until the next click); Accessibility + ⌘H (no: no grants). Waiting on the user.
 
 ## What OS updates can break
 
