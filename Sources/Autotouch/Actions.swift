@@ -44,20 +44,45 @@ enum Actions {
 
     /// Hides the app owning the window under the pointer (⌘H for that app); over no window,
     /// the frontmost app.
+    ///
+    /// macOS ignores a hide request from another process for the last app with windows on
+    /// screen (it has no app to make active instead; seen on 27.2). ⌘H would hand
+    /// activation to Finder, the desktop: do that first in that case. When the window list
+    /// misjudges it (windows on another Space), a check shortly after does the same.
+    /// When Finder itself is that last app there is no app to hand activation to: it stays
+    /// (⌘H in Finder works, but sending it needs Accessibility).
     static func hideAppUnderCursor(_ source: String) {
-        guard let app = appUnderCursor() ?? NSWorkspace.shared.frontmostApplication,
+        let windows = normalWindows()
+        guard let app = appUnderCursor(windows) ?? NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != getpid() else {
             Log.info("right swipe (\(source)): no app to hide")
             return
         }
         let name = app.localizedName ?? app.bundleIdentifier ?? "pid \(app.processIdentifier)"
+        let pid = app.processIdentifier
+        let isFinder = app.bundleIdentifier == finder
+        let last = !windows.contains { $0.pid != pid }
+        if last && isFinder {
+            Log.info("right swipe (\(source)): Finder is the last app with windows on screen: macOS won't hide it from outside")
+            return
+        }
+        if last { activateFinder() }
         // hide() returns false even when it works (macOS 27.2, from a process that isn't an
-        // NSApplication): check what happened instead. Not for Finder (macOS keeps it visible
-        // when no other app is), nor when another swipe came since (it may have shown it again).
+        // NSApplication): check what happened instead.
         _ = app.hide()
-        Log.info("right swipe (\(source)): hide \(name)")
-        guard app.bundleIdentifier != "com.apple.finder" else { return }
-        let pid = app.processIdentifier, seq = sequence
+        Log.info("right swipe (\(source)): hide \(name)" + (last ? " (last app on screen: Finder first)" : ""))
+        // Another swipe since may have shown the app again on purpose.
+        let seq = sequence
+        if !isFinder {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                MainActor.assumeIsolated {
+                    guard seq == sequence, let a = NSRunningApplication(processIdentifier: pid), !a.isHidden else { return }
+                    activateFinder()
+                    _ = a.hide()
+                    Log.info("right swipe (\(source)): \(name) was still showing: hid it again, Finder first")
+                }
+            }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             MainActor.assumeIsolated {
                 if seq == sequence, let a = NSRunningApplication(processIdentifier: pid), !a.isHidden {
@@ -67,19 +92,34 @@ enum Actions {
         }
     }
 
-    /// The app owning the frontmost normal-level window under the pointer.
-    static func appUnderCursor() -> NSRunningApplication? {
-        guard let point = CGEvent(source: nil)?.location,
-              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] else { return nil }
-        for w in windows {   // front to back
+    static let finder = "com.apple.finder"
+
+    /// Makes Finder (the desktop) the active app. Works from a background process; opens no
+    /// window.
+    static func activateFinder() {
+        _ = NSRunningApplication.runningApplications(withBundleIdentifier: finder).first?.activate()
+    }
+
+    /// On-screen, normal-level (layer 0), visible windows, front to back, other than the
+    /// desktop's: owner and bounds only (no Screen Recording needed for those).
+    static func normalWindows() -> [(pid: pid_t, bounds: CGRect)] {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else { return [] }
+        let me = getpid()
+        return list.compactMap { w in
             guard w[kCGWindowLayer as String] as? Int == 0,
                   (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
                   let bounds = w[kCGWindowBounds as String] as? NSDictionary,
-                  let rect = CGRect(dictionaryRepresentation: bounds), rect.contains(point),
-                  let pid = w[kCGWindowOwnerPID as String] as? Int else { continue }
-            return NSRunningApplication(processIdentifier: pid_t(pid))
+                  let rect = CGRect(dictionaryRepresentation: bounds), rect.width > 1, rect.height > 1,
+                  let pid = (w[kCGWindowOwnerPID as String] as? Int).map(pid_t.init), pid != me else { return nil }
+            return (pid, rect)
         }
-        return nil
+    }
+
+    /// The app owning the frontmost normal window under the pointer.
+    static func appUnderCursor(_ windows: [(pid: pid_t, bounds: CGRect)]) -> NSRunningApplication? {
+        guard let point = CGEvent(source: nil)?.location,
+              let w = windows.first(where: { $0.bounds.contains(point) }) else { return nil }
+        return NSRunningApplication(processIdentifier: w.pid)
     }
 }
