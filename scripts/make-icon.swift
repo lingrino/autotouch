@@ -1,6 +1,6 @@
 // Generates Resources/AppIcon.icns. Run: swift scripts/make-icon.swift
-// A squircle with a teal → deep blue gradient and three white fingertips over a left-right
-// arrow: a three-finger swipe. Drawn with paths: SF Symbols may not be used in app icons.
+// A squircle with a teal → deep blue gradient and three white fingertips. Drawn with paths:
+// SF Symbols may not be used in app icons.
 import AppKit
 
 func render(_ px: Int) -> Data {
@@ -17,23 +17,12 @@ func render(_ px: Int) -> Data {
     NSGradient(colors: [NSColor(srgbRed: 0.06, green: 0.22, blue: 0.55, alpha: 1),
                         NSColor(srgbRed: 0.10, green: 0.68, blue: 0.72, alpha: 1)])!.draw(in: path, angle: 70)
     NSColor.white.setFill()
-    NSColor.white.setStroke()
-    // Fingertips: the middle one a little higher, like a hand's.
-    let r = s * 0.075
-    for (dx, dy) in [(-0.19, 0.07), (0.0, 0.11), (0.19, 0.07)] as [(CGFloat, CGFloat)] {
+    // Three fingertips, the middle one a little higher, like a hand's.
+    let r = s * 0.09
+    for (dx, dy) in [(-0.215, -0.02), (0.0, 0.025), (0.215, -0.02)] as [(CGFloat, CGFloat)] {
         let c = NSPoint(x: body.midX + dx * s, y: body.midY + dy * s)
         NSBezierPath(ovalIn: NSRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)).fill()
     }
-    // A double-headed arrow underneath.
-    let y = body.midY - 0.14 * s, left = body.midX - 0.27 * s, right = body.midX + 0.27 * s, h = 0.075 * s
-    let arrow = NSBezierPath()
-    arrow.move(to: NSPoint(x: left + h, y: y + h)); arrow.line(to: NSPoint(x: left, y: y)); arrow.line(to: NSPoint(x: left + h, y: y - h))
-    arrow.move(to: NSPoint(x: left, y: y)); arrow.line(to: NSPoint(x: right, y: y))
-    arrow.move(to: NSPoint(x: right - h, y: y + h)); arrow.line(to: NSPoint(x: right, y: y)); arrow.line(to: NSPoint(x: right - h, y: y - h))
-    arrow.lineWidth = 0.05 * s
-    arrow.lineCapStyle = .round
-    arrow.lineJoinStyle = .round
-    arrow.stroke()
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
 }

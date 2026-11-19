@@ -113,9 +113,10 @@ no CLAUDE.md, so don't add one.
   coalesced: one rebuild at the latest delay asked for, at most 5 s after the first hint,
   and not while fingers are on a pad (a fresh recognizer mid-touch could fire a swipe
   twice). Stale device objects after sleep are the classic way gesture tools stop working.
-  None of these paths has run on this Mac yet (no sleep, no Magic Trackpad since the first
-  build): after a lid close/open, a Magic Trackpad connecting or a user switch, `make logs`
-  should show the rebuild and its reason.
+  Seen working: 2026-11-19, a night of deep sleep on battery, lid opened at 08:56:19 →
+  "listening on 1 trackpad(s) (woke from sleep)" 2 s later, swipes working 8 s after. Not
+  yet seen: a Magic Trackpad connecting, a user switch (`make logs` shows the rebuild and
+  its reason).
 - **MultitouchSupport leaks 16 KB per device start** (a thread stack it never frees,
   measured linear over 200 starts): after 100 rebuilds the agent exits and launchd starts
   it fresh (~35 ms), so at most ~1.6 MB.
@@ -174,13 +175,16 @@ SMAppService (peep's lesson: SMAppService pins the executable's cdhash).
 
 ## Open decisions
 
-- **Publishing**, step by step like fred and peep. Done: lingrino/infra#3038 created the
-  private `lingrino/autotouch` repo (Actions off). Its first apply failed as expected on
-  `github_branch` (empty repo) and on the ruleset (403 "Repository has been locked", a new
-  repo's first seconds); re-running it after the first push of `main` adds both. Then
-  follow-ups like fred's: Actions on, PRs and the `lint`/`test`/`scripts` checks required,
-  autotouch in `local.mac_app_repos` (signing, notarization and tap secrets); public with
-  secret scanning; `cask 'lingrino/tap/autotouch'` in the dotfiles Brewfiles.
+- **Publishing**, step by step like fred and peep (lingrino/infra). Done: private repo
+  (#3038; its first apply fails on an empty repo and a new repo's ruleset lock, re-run
+  after the first push of `main`); Actions on, PRs with `lint`/`test`/`scripts` required,
+  autotouch in `local.mac_app_repos` for the signing, notarization and tap secrets (#3040).
+  Next: public with Actions limited to GitHub-owned and verified creators; then secret
+  scanning and push protection (GitHub refuses them in the update that makes a repo
+  public); then the first release while public publishes `Casks/autotouch.rb`, and only
+  then `cask 'lingrino/tap/autotouch'` goes into the dotfiles Brewfiles (`brew bundle`
+  fails on a cask that doesn't exist yet). A Mac with a `make install` build needs that
+  copy removed (or `brew install --force`) before brew installs over it.
 - macOS's own "swipe between full-screen apps" is on three fingers on this Mac
   (`TrackpadThreeFingerHorizSwipeGesture = 2`), so with several desktops or full-screen
   apps a swipe also switches spaces. System
