@@ -11,9 +11,9 @@ public enum Swipe: Sendable, Hashable {
 /// together; nothing more is recognized until every finger has lifted. Allocation-free.
 ///
 /// The rules, in order:
-/// - Exactly three fingers. Four or more is somebody else's gesture (macOS's): ignore
-///   everything until all fingers lift. One or two fingers do nothing, so a finger that
-///   loses contact for a moment mid-swipe doesn't lose the swipe.
+/// - Exactly three fingers (`isFinger`: a resting palm isn't one). Four or more is somebody
+///   else's gesture (macOS's): ignore everything until all fingers lift. One or two fingers
+///   do nothing, so a finger that loses contact for a moment mid-swipe doesn't lose the swipe.
 /// - Positions are measured from where the three fingers were when the third came down (a
 ///   two-finger scroll that gains a finger starts from there, not from the scroll's start).
 ///   If a different finger joins, start over from that frame.
@@ -29,6 +29,17 @@ public struct SwipeRecognizer: Sendable {
     public static let fingerTravel: Float = 4
     /// Sideways travel must be at least this many times the vertical travel (within ~34°).
     public static let dominance: Float = 1.5
+
+    /// Whether a trackpad contact counts as a finger: touching (MultitouchSupport stage 3
+    /// make-touch or 4 touching) and not classified as something else. The driver labels
+    /// each contact: 1–5 fingers, 0 unclassified, 6 and up not a fingertip: a palm or wrist
+    /// resting on the pad's edge (6, 7, 8, 10), a fingertip grazing the top edge (7, 12)
+    /// (recorded 2026-11-19). Counting a resting palm made a three-finger swipe four contacts
+    /// (ignored), and kept the touch from ending between swipes.
+    @inlinable
+    public static func isFinger(stage: Int32, label: Int32) -> Bool {
+        (stage == 3 || stage == 4) && label < 6
+    }
 
     private enum Phase { case idle, tracking, finished }
     private var phase = Phase.idle

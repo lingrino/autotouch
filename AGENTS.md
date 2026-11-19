@@ -47,6 +47,12 @@ no CLAUDE.md, so don't add one.
   windows, and one with windows on another Space would switch Spaces); a short-lived
   invisible Autotouch helper taking focus (blank menu bar until the next click); Accessibility
   + ⌘H (no grants, by design). Don't revisit unless the user asks.
+- 2026-11-19: swipes sometimes failed "on the first try" because the palm/wrist touches
+  the far right of the large trackpad. Recorded it: the resting palm sits in the
+  bottom-right corner, still, labelled as not a finger by the driver. Contacts labelled
+  6+ are ignored now. Replaying the recording: palm-resting swipes that fire went from
+  7 to 28, normal swipes unchanged, four-finger swipes still ignored. The owner confirmed
+  "works on first try". The raw recording isn't kept in the repo (no test data).
 - Minimum macOS 27.2 (like fred); Apple Silicon only (`depends_on arch: :arm64`).
 
 ## How it works
@@ -78,8 +84,12 @@ no CLAUDE.md, so don't add one.
 - **MultitouchSupport** is looked up with `dlopen`/`dlsym` (`MTAPI`), nothing private is
   linked. The 96-byte `MTTouch` layout Autotouch reads (path id @16, stage @20, normalized x/y
   @32/36) was confirmed against live frames; `onFrame` drops frames that don't fit it and
-  logs that once. Fingers "down" are stages 3 (make-touch) and 4 (touching): hovering and
-  edge contacts (stages 1–2) are ignored. Positions are scaled to mm by the device's
+  logs that once. A contact is a finger (`SwipeRecognizer.isFinger`) when it is touching
+  (stage 3 make-touch or 4 touching; hovering and edge contacts are stages 1–2) and the
+  driver's finger label (@24) is 0–5: a palm or wrist resting on the pad's edge is labelled
+  6–10, so it neither turns a three-finger swipe into four contacts nor keeps the touch
+  from ending between swipes (recorded 2026-11-19; the palm tests in
+  `SwipeRecognizerTests` reproduce it). Positions are scaled to mm by the device's
   surface size, so thresholds mean the same on every trackpad.
 - **SwipeRecognizer** (its doc comment has the rules): exactly three fingers; positions
   measured from when the third came down; ≥ 9 mm average sideways travel, ≥ 1.5× the

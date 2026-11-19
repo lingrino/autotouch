@@ -54,6 +54,7 @@ private enum Contact {
     static let stride = 96
     static let id = 16       // Int32 path index: stable while the finger stays down
     static let stage = 20    // Int32: 1 start-in-range, 2 hover, 3 make-touch, 4 touching, 5 break-touch, 6 linger, 7 out-of-range
+    static let label = 24    // Int32: the driver's finger classification (SwipeRecognizer.isFinger)
     static let x = 32        // Float, normalized 0…1 left → right
     static let y = 36        // Float, normalized 0…1 bottom → top
 }
@@ -86,7 +87,8 @@ private func onFrame(_ device: MTAPI.Device?, _ contacts: UnsafeRawPointer?, _ c
             let x = c.loadUnaligned(fromByteOffset: Contact.x, as: Float.self)
             let y = c.loadUnaligned(fromByteOffset: Contact.y, as: Float.self)
             guard (0...7).contains(stage), x > -0.5, x < 1.5, y > -0.5, y < 1.5 else { sane = false; break }
-            guard stage == 3 || stage == 4 else { continue }
+            let label = c.loadUnaligned(fromByteOffset: Contact.label, as: Int32.self)
+            guard SwipeRecognizer.isFinger(stage: stage, label: label) else { continue }
             if n < 3 {
                 ids[n] = c.loadUnaligned(fromByteOffset: Contact.id, as: Int32.self)
                 xs[n] = x

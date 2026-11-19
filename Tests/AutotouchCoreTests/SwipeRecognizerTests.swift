@@ -154,3 +154,61 @@ private struct Pad {
     for _ in 0..<1000 { p.frame([(1, 50, 40), (2, 65, 42), (3, 80, 40)]) }
     #expect(p.fired.isEmpty)
 }
+
+// MARK: - A palm resting on the pad
+//
+// Recorded on the owner's trackpad (2026-11-19): a palm or wrist resting on the large pad
+// sits still in its bottom-right corner, and the driver labels it 6–10 (fingers are 1–5).
+
+private extension Pad {
+    /// Raw contacts (id, stage, label, x mm, y mm), filtered the way the agent filters them.
+    mutating func contacts(_ cs: [(Int32, Int32, Int32, Float, Float)]) {
+        frame(cs.filter { SwipeRecognizer.isFinger(stage: $0.1, label: $0.2) }.map { ($0.0, $0.3, $0.4) })
+    }
+
+    /// `fingers` fingers swiping by `dx` in 20 frames while a palm rests in the corner (its
+    /// label flickers between 7 and 10, as recorded).
+    mutating func withPalm(fingers: Int, by dx: Float, firstID: Int32 = 1) {
+        for s in 0...20 {
+            let t = Float(s) / 20
+            var cs: [(Int32, Int32, Int32, Float, Float)] = [(99, 4, s % 3 == 0 ? 10 : 7, 124.5, 1.2)]
+            for f in 0..<fingers {
+                cs.append((firstID + Int32(f), 4, Int32(2 + f % 3), 40 + 15 * Float(f) + dx * t, 50 + 3 * Float(f % 2)))
+            }
+            contacts(cs)
+        }
+    }
+
+    mutating func palmOnly() { contacts([(99, 4, 7, 124.5, 1.2)]) }
+}
+
+@Test func palmDoesNotBlockASwipe() {
+    var p = Pad()
+    for _ in 0..<10 { p.palmOnly() }   // the palm lands first
+    p.withPalm(fingers: 3, by: -25)
+    #expect(p.fired == [.left])
+}
+
+@Test func swipesInARowWithThePalmDown() {
+    var p = Pad()
+    p.withPalm(fingers: 3, by: -25)
+    for _ in 0..<10 { p.palmOnly() }   // fingers lift, the palm stays
+    p.withPalm(fingers: 3, by: 25, firstID: 4)
+    #expect(p.fired == [.left, .right])
+}
+
+@Test func fourFingersAreStillNotOursWithAPalm() {
+    var p = Pad()
+    p.withPalm(fingers: 4, by: -30)
+    #expect(p.fired.isEmpty)
+}
+
+@Test func whatCountsAsAFinger() {
+    #expect(SwipeRecognizer.isFinger(stage: 4, label: 2))
+    #expect(SwipeRecognizer.isFinger(stage: 3, label: 5))
+    #expect(SwipeRecognizer.isFinger(stage: 4, label: 0))    // unclassified: counts
+    #expect(!SwipeRecognizer.isFinger(stage: 4, label: 7))   // palm
+    #expect(!SwipeRecognizer.isFinger(stage: 4, label: 10))  // palm
+    #expect(!SwipeRecognizer.isFinger(stage: 2, label: 2))   // hovering
+    #expect(!SwipeRecognizer.isFinger(stage: 5, label: 2))   // lifting
+}
