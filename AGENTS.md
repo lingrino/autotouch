@@ -157,10 +157,13 @@ SMAppService (peep's lesson: SMAppService pins the executable's cdhash).
 
 ## Open decisions
 
-- **Not published yet** (user, 2026-11-18: keep it local). Before the first push: create
-  the GitHub repo and add it to lingrino/infra (`local.mac_app_repos` for the signing,
-  notarization and tap secrets; a `repo_autotouch.tf` with the ruleset and required checks
-  lint/test/scripts), then add `cask 'lingrino/tap/autotouch'` to the dotfiles Brewfiles.
+- **Publishing**, step by step like fred and peep. Done: lingrino/infra#3038 created the
+  private `lingrino/autotouch` repo (Actions off). Its first apply failed as expected on
+  `github_branch` (empty repo) and on the ruleset (403 "Repository has been locked", a new
+  repo's first seconds); re-running it after the first push of `main` adds both. Then
+  follow-ups like fred's: Actions on, PRs and the `lint`/`test`/`scripts` checks required,
+  autotouch in `local.mac_app_repos` (signing, notarization and tap secrets); public with
+  secret scanning; `cask 'lingrino/tap/autotouch'` in the dotfiles Brewfiles.
 - macOS's own "swipe between full-screen apps" is on three fingers on this Mac
   (`TrackpadThreeFingerHorizSwipeGesture = 2`), so with several desktops or full-screen
   apps a swipe also switches spaces. System
@@ -177,6 +180,10 @@ SMAppService (peep's lesson: SMAppService pins the executable's cdhash).
   listened to; harmless unless three fingers swipe on it.
 
 ## Conventions
+
+- The repo is meant to be readable publicly: nothing private, no test data or recordings
+  (tests are synthetic), no third-party assets (the icon is drawn by
+  `scripts/make-icon.swift`: SF Symbols may not be used in app icons).
 
 - Swift 6 language mode, zero warnings. Main-thread code is `@MainActor`; the frame callback
   runs on MultitouchSupport's thread and touches only `frameState` (an
