@@ -113,9 +113,10 @@ no CLAUDE.md, so don't add one.
   coalesced: one rebuild at the latest delay asked for, at most 5 s after the first hint,
   and not while fingers are on a pad (a fresh recognizer mid-touch could fire a swipe
   twice). Stale device objects after sleep are the classic way gesture tools stop working.
-  None of these paths has run on this Mac yet (no sleep, no Magic Trackpad since the first
-  build): after a lid close/open, a Magic Trackpad connecting or a user switch, `make logs`
-  should show the rebuild and its reason.
+  Seen working: 2026-11-19, a night of deep sleep on battery, lid opened at 08:56:19 →
+  "listening on 1 trackpad(s) (woke from sleep)" 2 s later, swipes working 8 s after. Not
+  yet seen: a Magic Trackpad connecting, a user switch (`make logs` shows the rebuild and
+  its reason).
 - **MultitouchSupport leaks 16 KB per device start** (a thread stack it never frees,
   measured linear over 200 starts): after 100 rebuilds the agent exits and launchd starts
   it fresh (~35 ms), so at most ~1.6 MB.
