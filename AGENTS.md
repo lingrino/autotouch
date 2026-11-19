@@ -174,13 +174,16 @@ SMAppService (peep's lesson: SMAppService pins the executable's cdhash).
 
 ## Open decisions
 
-- **Publishing**, step by step like fred and peep. Done: lingrino/infra#3038 created the
-  private `lingrino/autotouch` repo (Actions off). Its first apply failed as expected on
-  `github_branch` (empty repo) and on the ruleset (403 "Repository has been locked", a new
-  repo's first seconds); re-running it after the first push of `main` adds both. Then
-  follow-ups like fred's: Actions on, PRs and the `lint`/`test`/`scripts` checks required,
-  autotouch in `local.mac_app_repos` (signing, notarization and tap secrets); public with
-  secret scanning; `cask 'lingrino/tap/autotouch'` in the dotfiles Brewfiles.
+- **Publishing**, step by step like fred and peep (lingrino/infra). Done: private repo
+  (#3038; its first apply fails on an empty repo and a new repo's ruleset lock, re-run
+  after the first push of `main`); Actions on, PRs with `lint`/`test`/`scripts` required,
+  autotouch in `local.mac_app_repos` for the signing, notarization and tap secrets (#3040).
+  Next: public with Actions limited to GitHub-owned and verified creators; then secret
+  scanning and push protection (GitHub refuses them in the update that makes a repo
+  public); then the first release while public publishes `Casks/autotouch.rb`, and only
+  then `cask 'lingrino/tap/autotouch'` goes into the dotfiles Brewfiles (`brew bundle`
+  fails on a cask that doesn't exist yet). A Mac with a `make install` build needs that
+  copy removed (or `brew install --force`) before brew installs over it.
 - macOS's own "swipe between full-screen apps" is on three fingers on this Mac
   (`TrackpadThreeFingerHorizSwipeGesture = 2`), so with several desktops or full-screen
   apps a swipe also switches spaces. System
