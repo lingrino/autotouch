@@ -1,6 +1,6 @@
 #!/bin/bash
 # `swift` wrapper used by the Makefile and scripts, so the same commands work with Xcode
-# (CI, and this Mac since 2026-11) and with the Command Line Tools alone.
+# (CI) and with the Command Line Tools alone (the maintainer's Macs).
 #
 # With Xcode active it is plain `swift`. With the Command Line Tools active (xcode-select,
 # or DEVELOPER_DIR), it works around two CLT problems seen on 2026-11-14:

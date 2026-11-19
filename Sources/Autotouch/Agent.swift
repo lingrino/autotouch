@@ -41,7 +41,12 @@ enum Agent {
         return "\(info["CFBundleShortVersionString"] as? String ?? "dev") (\(info["AutotouchRevision"] as? String ?? "dev"))"
     }
 
-    /// Wake, display and session changes: the trackpads' device objects may not survive them.
+    /// Wake and session changes: the trackpads' device objects may not survive them.
+    ///
+    /// Only notifications that reach a process without an NSApplication event loop: wake
+    /// (IOKit power) and session changes (distributed notifications) do; screens waking and
+    /// display reconfiguration ride the window server's event stream and never arrive here
+    /// (verified 2026-11-19), so there are no hints for those.
     private static func watchSystem() {
         let center = NSWorkspace.shared.notificationCenter
         func on(_ name: Notification.Name, _ body: @escaping @MainActor () -> Void) {
@@ -50,22 +55,11 @@ enum Agent {
             })
         }
         on(NSWorkspace.didWakeNotification) { Trackpads.shared.rebuildSoon("woke from sleep", after: 2) }
-        on(NSWorkspace.screensDidWakeNotification) { Trackpads.shared.rebuildSoon("screens woke") }
-        on(NSWorkspace.sessionDidBecomeActiveNotification) {
-            Trackpads.shared.sessionActive = true
-            Trackpads.shared.rebuildSoon("session active again")
-        }
+        on(NSWorkspace.sessionDidBecomeActiveNotification) { Trackpads.shared.rebuildSoon("session active again") }
         on(NSWorkspace.sessionDidResignActiveNotification) {
-            Trackpads.shared.sessionActive = false
             Trackpads.shared.stop()
             Log.info("session inactive: stopped listening")
         }
-        // Trackpad callbacks have been seen to go quiet after display changes (MiddleClick's
-        // experience); called per display, before and after each change: coalesced.
-        CGDisplayRegisterReconfigurationCallback({ _, flags, _ in
-            guard !flags.contains(.beginConfigurationFlag) else { return }
-            DispatchQueue.main.async { MainActor.assumeIsolated { Trackpads.shared.rebuildSoon("displays reconfigured") } }
-        }, nil)
     }
 
     /// SIGINFO logs a status line (`make status`); SIGUSR1 / SIGUSR2 perform the left / right

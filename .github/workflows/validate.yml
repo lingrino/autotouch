@@ -11,8 +11,11 @@ concurrency:
   group: validate-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
-# The image's default Xcode is older than this Mac's and its SDK refuses the 27.2 deployment
-# target; build with the same Xcode as local builds. Move with the local Xcode.
+permissions:
+  contents: read
+
+# The image's default Xcode is older than the local toolchain and its SDK refuses the 27.2
+# deployment target; build with an Xcode whose SDK matches. Move with the local toolchain.
 env:
   DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
 

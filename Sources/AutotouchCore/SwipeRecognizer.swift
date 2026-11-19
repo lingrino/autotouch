@@ -13,7 +13,9 @@ public enum Swipe: Sendable, Hashable {
 /// The rules, in order:
 /// - Exactly three fingers (`isFinger`: a resting palm isn't one). Four or more is somebody
 ///   else's gesture (macOS's): ignore everything until all fingers lift. One or two fingers
-///   do nothing, so a finger that loses contact for a moment mid-swipe doesn't lose the swipe.
+///   do nothing, so a finger that loses contact for a moment mid-swipe doesn't lose the swipe;
+///   longer than `maxLapse` frames and the positions are forgotten (two fingers scrolling a
+///   while, then the third back, mustn't fire on where they all were before).
 /// - Positions are measured from where the three fingers were when the third came down (a
 ///   two-finger scroll that gains a finger starts from there, not from the scroll's start).
 ///   If a different finger joins, start over from that frame.
@@ -41,8 +43,13 @@ public struct SwipeRecognizer: Sendable {
         (stage == 3 || stage == 4) && label < 6
     }
 
+    /// Frames in a row with only one or two fingers down that a swipe survives (~80 ms at
+    /// 125 Hz; recorded lapses were at most 2 frames).
+    public static let maxLapse = 10
+
     private enum Phase { case idle, tracking, finished }
     private var phase = Phase.idle
+    private var lapse = 0
     private var ids = SIMD3<Int32>()
     private var startX = SIMD3<Float>()
     private var startY = SIMD3<Float>()
@@ -55,7 +62,15 @@ public struct SwipeRecognizer: Sendable {
     public mutating func frame(count: Int, ids: SIMD3<Int32>, x: SIMD3<Float>, y: SIMD3<Float>) -> Swipe? {
         if count == 0 { phase = .idle; return nil }
         if count > 3 { phase = .finished; return nil }
-        if count < 3 || phase == .finished { return nil }
+        if count < 3 {
+            if phase == .tracking {
+                lapse += 1
+                if lapse > Self.maxLapse { phase = .idle }
+            }
+            return nil
+        }
+        lapse = 0
+        if phase == .finished { return nil }
 
         // Line this frame's fingers up with the anchored ones.
         var dx = SIMD3<Float>(), dy = SIMD3<Float>()

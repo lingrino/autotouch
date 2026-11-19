@@ -5,7 +5,7 @@
 #   swipes left L right R    actions performed since the agent started
 set -euo pipefail
 LABEL=com.lingrino.autotouch.agent
-pid="$(launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | awk '$1 == "pid" { print $3; exit }')"
+pid="$(launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | awk '$1 == "pid" { print $3; exit }' || true)"
 if [[ -z "$pid" ]]; then
   echo "autotouch: the agent isn't running (launchctl print gui/$(id -u)/$LABEL)" >&2
   exit 1

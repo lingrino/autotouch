@@ -13,8 +13,7 @@ enum Actions {
     static func perform(_ swipe: Swipe, from source: String) {
         // Fingers on the trackpad while the screen is locked, or while another user's session
         // is on screen, aren't meant for this session's apps.
-        if let session = CGSessionCopyCurrentDictionary() as? [String: Any],
-           session[kCGSessionOnConsoleKey as String] as? Bool == false || session["CGSSessionScreenIsLocked"] as? Bool == true {
+        guard Session.onConsole, !Session.screenLocked else {
             Log.info("\(swipe) swipe ignored: screen locked or session not on console")
             return
         }
@@ -116,10 +115,23 @@ enum Actions {
         }
     }
 
-    /// The app owning the frontmost normal window under the pointer.
+    /// The app owning the frontmost normal window under the pointer (skipping windows whose
+    /// owner isn't an app).
     static func appUnderCursor(_ windows: [(pid: pid_t, bounds: CGRect)]) -> NSRunningApplication? {
-        guard let point = CGEvent(source: nil)?.location,
-              let w = windows.first(where: { $0.bounds.contains(point) }) else { return nil }
-        return NSRunningApplication(processIdentifier: w.pid)
+        guard let point = CGEvent(source: nil)?.location else { return nil }
+        for w in windows where w.bounds.contains(point) {
+            if let app = NSRunningApplication(processIdentifier: w.pid) { return app }
+        }
+        return nil
     }
+}
+
+/// This login session's state, read live from the window server (nothing cached to go stale).
+/// Unknown (no session dictionary) counts as on console and unlocked: better a swipe too
+/// many than none.
+enum Session {
+    private static var current: [String: Any] { CGSessionCopyCurrentDictionary() as? [String: Any] ?? [:] }
+    /// False while another user's session is on screen (fast user switching).
+    static var onConsole: Bool { current[kCGSessionOnConsoleKey as String] as? Bool ?? true }
+    static var screenLocked: Bool { current["CGSSessionScreenIsLocked"] as? Bool ?? false }
 }

@@ -32,7 +32,7 @@ grep -q "program = $EXE" <<<"$info" && ok || bad "agent runs $(grep -m1 'program
 pid="$(awk '$1 == "pid" { print $3; exit }' <<<"$info")"
 [[ "$(ps -o comm= -p "${pid:-0}")" == "$EXE" ]] && ok || bad "pid ${pid:-?} isn't $EXE"
 # The running agent is the installed build (it restarts itself when the bundle changes).
-started="$(date -j -f "%a %b %d %T %Y" "$(ps -o lstart= -p "${pid:-0}")" +%s 2>/dev/null || echo 0)"
+started="$(LC_ALL=C date -j -f "%a %b %d %T %Y" "$(LC_ALL=C ps -o lstart= -p "${pid:-0}")" +%s 2>/dev/null || echo 0)"
 [[ "$(stat -f %m "$EXE")" -le "$started" ]] && ok || bad "the agent started before $EXE was written: stale"
 
 status="$(./scripts/status.sh 2>&1)"

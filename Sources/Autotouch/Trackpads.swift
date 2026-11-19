@@ -120,33 +120,45 @@ private func onFrame(_ device: MTAPI.Device?, _ contacts: UnsafeRawPointer?, _ c
 
 /// The trackpads Autotouch listens to. Rebuilt from scratch (stop everything, list devices,
 /// start the trackpads) at start and whenever something may have invalidated the device
-/// objects: a trackpad appearing or going away (IOKit), wake from sleep, displays being
-/// reconfigured, coming back to the login session. A rebuild costs a few ms; a stale device
-/// costs every swipe until the next one, so rebuild on any hint.
+/// objects: a trackpad appearing or going away (IOKit), wake from sleep, coming back to the
+/// login session, a start that failed. A rebuild costs a few ms; a stale device costs every
+/// swipe until the next one, so rebuild on any hint.
 @MainActor
 final class Trackpads {
     static let shared = Trackpads()
 
     /// Magic Mouse (1st and 2nd generation) family IDs: touch-sensitive too, but not a trackpad.
     private static let mouseFamilies: Set<Int32> = [112, 113]
+    /// MultitouchSupport keeps a 16 KB thread stack for every device start, never freed
+    /// (measured 2026-11-19: linear over 200 starts). After this many rebuilds the agent starts
+    /// over as a fresh process instead (launchd restarts it in ~35 ms): at most ~1.6 MB.
+    private static let rebuildsPerProcess = 100
+    /// A failed start is retried this many times, 5 s apart.
+    private static let retries = 5
     private let callback: MTAPI.FrameCallback = onFrame
+    private let born = nowNanos()
     private var list: CFArray?
     private var devices: [MTAPI.Device] = []
-    private var pending = 0
     private var ioPort: IONotificationPortRef?
     private var ioIterators: [io_iterator_t] = []
     private(set) var rebuilds = 0
-    /// False while another user's session is on screen: nothing to listen for then.
-    var sessionActive = true
+    private var failedStarts = 0
 
     var count: Int { devices.count }
     var running: Int { devices.filter { MTAPI.shared?.isRunning($0) == true }.count }
 
     func rebuild(_ why: String) {
+        // launchd restarts a job that ran under 10 s only after a delay: start over only past that.
+        if rebuilds >= Self.rebuildsPerProcess, nowNanos() &- born > 15_000_000_000 {
+            Log.info("\(rebuilds) rebuilds in this process: restarting fresh (\(why))")
+            exit(0)
+        }
         stop()
-        guard sessionActive, let mt = MTAPI.shared else { return }
+        // Not while another user's session is on screen: its fingers aren't ours.
+        guard Session.onConsole, let mt = MTAPI.shared else { return }
         guard let list = mt.createList()?.takeRetainedValue() else {
             Log.error("MTDeviceCreateList returned nothing (\(why))")
+            retryIfFailed(true)
             return
         }
         var pads: [FrameState.Pad] = []
@@ -178,6 +190,16 @@ final class Trackpads {
         Log.info("listening on \(trackpads.count) trackpad(s) [\(sizes)] (\(why))"
                  + (skipped.isEmpty ? "" : "; skipped mouse families \(skipped)")
                  + (failed.isEmpty ? "" : "; MTDeviceStart failed: \(failed)"))
+        retryIfFailed(!failed.isEmpty || running < count)
+    }
+
+    /// A trackpad that isn't ready yet (a Bluetooth one just connecting) fails to start, and
+    /// nothing else would try again until the next hint.
+    private func retryIfFailed(_ failed: Bool) {
+        guard failed else { failedStarts = 0; return }
+        guard failedStarts < Self.retries else { return }
+        failedStarts += 1
+        rebuildSoon("retry \(failedStarts) after a failed start", after: 5)
     }
 
     func stop() {
@@ -191,17 +213,45 @@ final class Trackpads {
         list = nil
     }
 
-    /// Coalesces bursts of hints (a wake brings several) into one rebuild.
+    private var due: DispatchTime?
+    private var dueWhy = ""
+    private var burst = DispatchTime.now()
+    private var deferrals = 0
+
+    /// Coalesces bursts of hints (a wake brings several) into one rebuild: at the latest
+    /// deadline any of them asked for (a wake waits 2 s for devices to settle), but never
+    /// more than 5 s after the first, so a stream of hints can't postpone it forever. Not
+    /// while fingers are on a pad: a fresh recognizer mid-touch could fire the same swipe
+    /// again (deferred in 0.5 s steps, at most 5 s).
     func rebuildSoon(_ why: String, after delay: Double = 1) {
-        pending &+= 1
-        let generation = pending
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            MainActor.assumeIsolated {
-                let me = Trackpads.shared
-                guard generation == me.pending else { return }
-                me.rebuild(why)
-            }
+        let now = DispatchTime.now()
+        if due == nil { burst = now }
+        var at = now + delay
+        if let due, due > at { at = due }
+        at = min(at, burst + 5)
+        if at == due { return }
+        due = at
+        dueWhy = why
+        schedule(at)
+    }
+
+    private func schedule(_ at: DispatchTime) {
+        DispatchQueue.main.asyncAfter(deadline: at) { MainActor.assumeIsolated { Trackpads.shared.fire(at) } }
+    }
+
+    private func fire(_ at: DispatchTime) {
+        guard at == due else { return }   // superseded by a later deadline
+        let touched = frameState.withLock { $0.lastFrame }
+        if nowNanos() &- touched < 200_000_000, deferrals < 10 {
+            deferrals += 1
+            let next = DispatchTime.now() + 0.5
+            due = next
+            schedule(next)
+            return
         }
+        due = nil
+        deferrals = 0
+        rebuild(dueWhy)
     }
 
     /// IOKit notifications for touch devices coming and going (a Magic Trackpad

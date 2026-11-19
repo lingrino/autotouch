@@ -73,10 +73,14 @@ no CLAUDE.md, so don't add one.
   `~/Library/LaunchAgents/com.lingrino.autotouch.agent.plist` if needed, (re)loads it with
   `launchctl bootstrap`, and exits. Only the copy in /Applications registers itself.
 - **The agent is not an NSApplication**: a main CFRunLoop serving the touch frames
-  (their own thread), IOKit/NSWorkspace/display notifications, FSEvents and signals.
-  NSWorkspace notifications, `openApplication` (including bringing Chrome forward from
-  the background) and `hide()` all work without one (checked on 27.2). ~3.5 MB footprint,
-  ~0 CPU when idle; while fingers touch the pad, ~25 µs per frame, mostly the framework.
+  (their own thread), IOKit and NSWorkspace notifications, FSEvents and signals.
+  `openApplication` (including bringing Chrome forward from the background), `hide()`, and
+  the wake and session notifications work without one (checked on 27.2). Anything carried
+  by the window server's event stream doesn't: screens waking, display reconfiguration
+  (`CGDisplayRegisterReconfigurationCallback`) never arrive. Running a real NSApplication
+  would cost ~2.6 MB. ~3.5 MB footprint at start, ~5 MB after the first swipes (one-time
+  setup of the window list and app lookups; flat after); 0 wakeups when idle; while
+  fingers touch the pad, ~25 µs per frame, mostly the framework.
 - **No privacy grants.** MultitouchSupport needs none (verified: the launchd-run agent
   receives frames with nothing granted); opening/hiding apps are LaunchServices requests;
   window owners and bounds (not titles) need no Screen Recording. Empty entitlements,
@@ -94,17 +98,30 @@ no CLAUDE.md, so don't add one.
 - **SwipeRecognizer** (its doc comment has the rules): exactly three fingers; positions
   measured from when the third came down; ≥ 9 mm average sideways travel, ≥ 1.5× the
   vertical, every finger ≥ 4 mm the same way; fires once per touch; four fingers or a
-  vertical start cancel until all fingers lift.
+  vertical start cancel until all fingers lift; more than 10 frames (~80 ms) with fewer
+  than three fingers forgets the positions (a finger back after two fingers scrolled a
+  while must not fire on stale ones).
 
 ## Reliability: what keeps it working
 
 - **launchd KeepAlive**: any exit or crash → restarted (throttled to once per 10 s).
   `ProcessType Interactive`: never throttled. Tested: `kill -9` → back immediately.
-- **Trackpads are re-acquired** (`Trackpads.rebuild`: stop, list, start; a few ms) on every
+- **Trackpads are re-acquired** (`Trackpads.rebuild`: stop, list, start; ~4 ms) on every
   hint the device objects may be stale: IOKit `AppleMultitouchDevice` added/removed (Magic
-  Trackpad connects, device re-created), wake from sleep, screens waking, display
-  reconfiguration, the login session becoming active again. Hints are coalesced (1 s).
-  Stale device objects after sleep are the classic way gesture tools stop working.
+  Trackpad connects, device re-created), wake from sleep, the login session becoming
+  active again, and a start that failed (retried 5 s later, up to 5 times). Hints are
+  coalesced: one rebuild at the latest delay asked for, at most 5 s after the first hint,
+  and not while fingers are on a pad (a fresh recognizer mid-touch could fire a swipe
+  twice). Stale device objects after sleep are the classic way gesture tools stop working.
+  None of these paths has run on this Mac yet (no sleep, no Magic Trackpad since the first
+  build): after a lid close/open, a Magic Trackpad connecting or a user switch, `make logs`
+  should show the rebuild and its reason.
+- **MultitouchSupport leaks 16 KB per device start** (a thread stack it never frees,
+  measured linear over 200 starts): after 100 rebuilds the agent exits and launchd starts
+  it fresh (~35 ms), so at most ~1.6 MB.
+- **Session state is read live** (`Session`: `CGSessionCopyCurrentDictionary`), never
+  cached: rebuilds don't listen while another user's session is on screen, and swipes do
+  nothing while the screen is locked.
 - **Upgrades**: the agent watches the folder holding its bundle (FSEvents); when its
   executable is a different file, it exits once the new one is in place and launchd
   starts the new version (tested: ~3 s). `make install` also restarts it directly.
@@ -168,6 +185,11 @@ SMAppService (peep's lesson: SMAppService pins the executable's cdhash).
   (`TrackpadThreeFingerHorizSwipeGesture = 2`), so with several desktops or full-screen
   apps a swipe also switches spaces. System
   Settings → Trackpad → More Gestures → four fingers would separate them. Their call.
+- Unverified edges: hiding the last app on screen activates Finder, which may switch to
+  another Space if Finder's only window is there (activating an app does that when "switch
+  to a Space with open windows" is on). The palm filter rests on one recording (right
+  hand, built-in pad): a Magic Trackpad or the left hand may label differently, and a
+  resting thumb is a finger (label 1), so it still makes four contacts.
 
 ## What OS updates can break
 

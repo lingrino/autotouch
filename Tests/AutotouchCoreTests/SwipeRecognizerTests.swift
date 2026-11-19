@@ -212,3 +212,45 @@ private extension Pad {
     #expect(!SwipeRecognizer.isFinger(stage: 2, label: 2))   // hovering
     #expect(!SwipeRecognizer.isFinger(stage: 5, label: 2))   // lifting
 }
+
+// MARK: - Lapses and boundaries
+
+@Test func longLapseForgetsThePositions() {
+    var p = Pad()
+    p.frame([(1, 50, 40), (2, 65, 42), (3, 80, 40)])
+    // Finger 2 lifts; the other two scroll 30 mm left for a while.
+    for s in 1...30 { p.frame([(1, 50 - Float(s), 40), (3, 80 - Float(s), 40)]) }
+    // Finger 2 grazes the pad again (same path id), 30 mm left of where it was: no swipe.
+    p.frame([(1, 20, 40), (2, 35, 42), (3, 50, 40)])
+    #expect(p.fired.isEmpty)
+    // Measured from there, a real swipe still works.
+    p.three(from: 20, 40, by: 25, 0)
+    #expect(p.fired == [.right])
+}
+
+@Test func lapseUpToTheLimitKeepsTheSwipe() {
+    var p = Pad()
+    p.frame([(1, 50, 40), (2, 65, 42), (3, 80, 40)])
+    for _ in 0..<SwipeRecognizer.maxLapse { p.frame([(1, 50, 40), (3, 80, 40)]) }
+    p.frame([(1, 36, 40), (2, 51, 42), (3, 66, 40)])
+    #expect(p.fired == [.left])
+}
+
+@Test func everyFingerMustMove() {
+    let f = SwipeRecognizer.fingerTravel
+    for (last, fires) in [(f - 0.5, false), (f + 0.5, true)] {
+        var p = Pad()
+        p.frame([(1, 50, 40), (2, 65, 42), (3, 80, 40)])
+        p.frame([(1, 36, 40), (2, 51, 42), (3, 80 - last, 40)])   // average ≥ travel either way
+        #expect(p.fired == (fires ? [.left] : []), "last finger \(last) mm")
+    }
+}
+
+@Test func mostlySidewaysBoundary() {
+    let d = SwipeRecognizer.dominance
+    for (dy, fires) in [(20 / d - 0.5, true), (20 / d + 0.5, false)] {
+        var p = Pad()
+        p.three(by: 20, dy)
+        #expect(p.fired == (fires ? [.right] : []), "dy \(dy) mm")
+    }
+}
