@@ -49,7 +49,8 @@ enum Actions {
     /// activation to Finder, the desktop: do that first in that case. When the window list
     /// misjudges it (windows on another Space), a check shortly after does the same.
     /// When Finder itself is that last app there is no app to hand activation to: it stays
-    /// (⌘H in Finder works, but sending it needs Accessibility).
+    /// (⌘H in Finder works, but sending it needs Accessibility). Each hide goes both ways
+    /// macOS has (`requestHide`).
     static func hideAppUnderCursor(_ source: String) {
         let windows = normalWindows()
         guard let app = appUnderCursor(windows) ?? NSWorkspace.shared.frontmostApplication,
@@ -66,9 +67,7 @@ enum Actions {
             return
         }
         if last { activateFinder() }
-        // hide() returns false even when it works (macOS 27.2, from a process that isn't an
-        // NSApplication): check what happened instead.
-        _ = app.hide()
+        requestHide(app)
         Log.info("right swipe (\(source)): hide \(name)" + (last ? " (last app on screen: Finder first)" : ""))
         // Another swipe since may have shown the app again on purpose.
         let seq = sequence
@@ -77,7 +76,7 @@ enum Actions {
                 MainActor.assumeIsolated {
                     guard seq == sequence, let a = NSRunningApplication(processIdentifier: pid), !a.isHidden else { return }
                     activateFinder()
-                    _ = a.hide()
+                    requestHide(a)
                     Log.info("right swipe (\(source)): \(name) was still showing: hid it again, Finder first")
                 }
             }
@@ -89,6 +88,18 @@ enum Actions {
                 }
             }
         }
+    }
+
+    /// Asks `app` to hide both ways macOS has; together they are harmless (one hide).
+    /// LaunchServices' request (`hide()`) never reaches an app that was launched in the
+    /// background and opened later: Spotlight launches Things that way to query its App
+    /// Intents, and Calculator launched the same way ignores it too (seen on 27.2.1). The
+    /// window server's request (SkyLight) reaches those.
+    static func requestHide(_ app: NSRunningApplication) {
+        // hide() returns false even when it works (macOS 27.2, from a process that isn't an
+        // NSApplication): check what happened instead.
+        _ = app.hide()
+        SkyLight.shared?.hide(app.processIdentifier)
     }
 
     static let finder = "com.apple.finder"
@@ -123,6 +134,39 @@ enum Actions {
             if let app = NSRunningApplication(processIdentifier: w.pid) { return app }
         }
         return nil
+    }
+}
+
+/// The window server's hide request (`SLPSPostHideReq`), the way the app gets told to hide
+/// itself besides LaunchServices'. SkyLight is private: looked up with `dlopen`/`dlsym` like
+/// MultitouchSupport, nothing private is linked. Nil if a macOS update takes it away
+/// (logged once); hiding then relies on `hide()` alone.
+struct SkyLight: @unchecked Sendable {
+    let processForPID: @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus
+    let postHideRequest: @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>) -> Int32
+
+    static let shared: SkyLight? = {
+        func sym<T>(_ path: String, _ name: String, _: T.Type) -> T? {
+            guard let lib = dlopen(path, RTLD_NOW), let p = dlsym(lib, name) else {
+                Log.error("no \(name) in \(path): hiding asks LaunchServices only")
+                return nil
+            }
+            return unsafeBitCast(p, to: T.self)
+        }
+        // GetProcessForPID is public but deprecated; looked up too, so no deprecation warning.
+        guard let processForPID = sym("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices",
+                                      "GetProcessForPID",
+                                      (@convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus).self),
+              let postHideRequest = sym("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", "SLPSPostHideReq",
+                                        (@convention(c) (UnsafeMutablePointer<ProcessSerialNumber>) -> Int32).self)
+        else { return nil }
+        return SkyLight(processForPID: processForPID, postHideRequest: postHideRequest)
+    }()
+
+    func hide(_ pid: pid_t) {
+        var psn = ProcessSerialNumber()
+        guard processForPID(pid, &psn) == noErr else { return }
+        _ = postHideRequest(&psn)
     }
 }
 
