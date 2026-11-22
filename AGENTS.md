@@ -28,7 +28,9 @@ no CLAUDE.md, so don't add one.
   retries the same way if the app still shows (its other windows on another Space). When
   Finder itself is the last app there is nothing to hand activation to and it stays (⌘H
   works, but sending keys needs Accessibility). `hide()` returns false even when it works:
-  outcomes are checked, not return values.
+  outcomes are checked, not return values. Every hide request goes both ways macOS has:
+  LaunchServices' (`hide()`) and the window server's (`SLPSPostHideReq`, SkyLight). An app
+  launched in the background and opened later never gets the first (see 2026-11-22).
 - Built-in trackpad and Magic Trackpads (they come and go: Bluetooth). Not the Magic Mouse.
 - Nothing while the screen is locked or another user's session is on screen.
 - **Not** in scope: any other gesture, other devices, configurability, a menu bar item.
@@ -53,6 +55,21 @@ no CLAUDE.md, so don't add one.
   6+ are ignored now. Replaying the recording: palm-resting swipes that fire went from
   7 to 28, normal swipes unchanged, four-finger swipes still ignored. The owner confirmed
   "works on first try". The raw recording isn't kept in the repo (no test data).
+- 2026-11-22 (macOS 27.2.1): Things wouldn't hide ("seems to work for other apps"). Spotlight
+  had cold-launched it in the background (corespotlightd → linkd, `background=YES`, to query
+  its App Intents); the owner opened it later. An app launched that way (`BackgroundOnly`,
+  then `Foreground`) never receives LaunchServices' hide request: launchservicesd broadcasts
+  `kLSNotifyHideRequest` (code 537), the app logs nothing, and unhide is ignored the same
+  way. Calculator launched the same way behaves the same, so it is macOS, not Things.
+  Relaunched normally, Things hides. The window server's request (`SLPSPostHideReq`)
+  reaches it; sent together with `hide()` to a normal app it hides once. Reproduce: quit the
+  app, launch it with `NSWorkspace.OpenConfiguration` `_setAdditionalLSOpenOptions:
+  ["_kLSOpenOptionBackgroundLaunchKey": true]`, then `open -a` it; `open -g -a` brings a
+  hidden one back. A working hide shows in the app's own log
+  (`log stream --level debug --predicate 'processID == N'`) as
+  `receiveNotificationFromServer(… code=537 …)` or `SHOWHIDE: HIDE`. Verified with a real
+  swipe: the background-launched Things, last app on screen, hid on the first try (no
+  retry); the owner confirmed "it hid".
 - Minimum macOS 27.2 (like fred); Apple Silicon only (`depends_on arch: :arm64`).
 
 ## How it works
@@ -65,6 +82,7 @@ no CLAUDE.md, so don't add one.
                  │ .left / .right, once per touch
                  ▼ main queue
               Actions (Actions.swift): NSWorkspace.openApplication / NSRunningApplication.hide
+                                       + SkyLight's SLPSPostHideReq
 ```
 
 - **One binary, two roles** (`main.swift`). Launched by launchd as the job
@@ -95,6 +113,9 @@ no CLAUDE.md, so don't add one.
   from ending between swipes (recorded 2026-11-19; the palm tests in
   `SwipeRecognizerTests` reproduce it). Positions are scaled to mm by the device's
   surface size, so thresholds mean the same on every trackpad.
+- **SkyLight** (`SkyLight` in Actions.swift) is looked up the same way, for one call:
+  `SLPSPostHideReq` (plus the deprecated public `GetProcessForPID` for its process serial
+  number). It works from this non-NSApplication agent, with no grant.
 - **SwipeRecognizer** (its doc comment has the rules): exactly three fingers; positions
   measured from when the third came down; ≥ 9 mm average sideways travel, ≥ 1.5× the
   vertical, every finger ≥ 4 mm the same way; fires once per touch; four fingers or a
@@ -154,6 +175,11 @@ make uninstall   # stop and remove the agent and the app
   ask them. Watch `make logs` meanwhile; each swipe logs its action.
 - `.build/debug/Autotouch --agent` runs an agent in the terminal; stop the installed one first
   (`launchctl bootout gui/$(id -u)/com.lingrino.autotouch.agent`) or the lock keeps it out.
+  `/Applications/Autotouch.app/Contents/MacOS/Autotouch --register` puts the installed one back.
+- Once the Homebrew cask is installed, `make install` can fail: macOS's App Management
+  protection keeps a process without that permission from changing the notarized copy
+  (rsync: "Operation not permitted"; the copy stays intact). Test with the built
+  `build/Autotouch.app/Contents/MacOS/Autotouch --agent` as above; releases go through brew.
 
 ## Signing
 
@@ -202,6 +228,9 @@ SMAppService (peep's lesson: SMAppService pins the executable's cdhash).
   If the touch layout changes, it logs "contact frame doesn't look like…". `make status`
   shows `trackpads 0` or frames that never arrive. Re-check the layout with a probe that
   prints raw frames (offsets above) while touching the pad.
+- SkyLight is private too. Without `SLPSPostHideReq` Autotouch logs "no SLPSPostHideReq in …:
+  hiding asks LaunchServices only" once; only apps launched in the background (Things,
+  after Spotlight) then stop hiding.
 - Magic Mouse is excluded by family ID (112, 113). A new mouse with another ID would be
   listened to; harmless unless three fingers swipe on it.
 
